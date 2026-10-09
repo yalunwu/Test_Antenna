@@ -1,3 +1,16 @@
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# OpenEMS build & results
 openEMS/**
-.idea
 SimResult/**
+
+# PyCharm / IDE
+.idea/
+*.iml

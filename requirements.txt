@@ -1,0 +1,13 @@
+# 77 GHz 3-Element Patch Antenna Simulation Dependencies
+# Python 3.13 / 3.14 on Windows x64
+
+# Scientific computing and visualization
+numpy>=2.0.0
+matplotlib>=3.9.0
+h5py>=3.10.0
+
+# OpenEMS and CSXCAD Python bindings:
+# These packages are pre-compiled and bundled inside the project repository.
+# To install in a virtual environment:
+#   pip install openEMS/python/csxcad-0.7.0rc3.post1.dev7+g65e759115-cp313-cp313-win_amd64.whl
+#   pip install openEMS/python/openems-0.37.0rc1.post1.dev47+gc849f07be-cp313-cp313-win_amd64.whl
