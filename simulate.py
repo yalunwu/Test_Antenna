@@ -74,6 +74,8 @@ def run_openems_solver(output_dir: pathlib.Path,
     cmd = [str(openems_exe), str(xml_path)]
     if engine:
         cmd.append(f'--engine={engine}')
+    if engine in ('vulkan', 'gpu'):
+        cmd.append('--vulkan-fd=gpu')
     if num_threads > 0:
         cmd.append(f'--numThreads={num_threads}')
     cmd.append('--dump-statistics')
@@ -727,6 +729,8 @@ def run_simulation(engine: str = 'vulkan',
             run_kwargs = {'cleanup': True}
             if engine:
                 run_kwargs['engine'] = engine
+            if engine in ('vulkan', 'gpu'):
+                run_kwargs['vulkan_fd'] = 'gpu'
             if num_threads > 0:
                 run_kwargs['numThreads'] = num_threads
             fdtd.Run(str(output_dir), **run_kwargs)

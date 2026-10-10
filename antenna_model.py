@@ -294,7 +294,7 @@ class PatchAntennaArray77GHz:
         mesh.SmoothMeshLines('z', res, smooth_ratio)
         
         # 8. Near-Field to Far-Field (NF2FF) Box
-        nf2ff = FDTD.CreateNF2FFBox()
+        nf2ff = FDTD.CreateNF2FFBox(frequency=[self.f_center], over_sampling=4)
         
         return FDTD, CSX, ports, nf2ff
 
