@@ -72,6 +72,8 @@ Test_Antenna/
 │       ├── s_parameters_data.csv  # S11, S21, S31, S41, Zin numerical data
 │       ├── radiation_pattern_77ghz.csv # Numerical far-field directivity table
 │       ├── openEMS_model.xml      # CSXCAD 3D geometry and mesh file
+│       ├── openEMS.log            # Full raw openEMS FDTD solver engine log
+│       ├── simulation.log         # Complete Python execution log
 │       ├── simulation_summary.json# Machine-readable metrics summary
 │       └── simulation_report.txt  # Human-readable formatted text report
 ├── antenna_model.py               # 4-Channel array geometry, 4-layer stackup & mesh
@@ -94,8 +96,17 @@ Test_Antenna/
 
 ### Option B: Terminal / PowerShell
 ```powershell
-# Run with GPU acceleration (Vulkan backend on RTX 3070)
+# Run with GPU acceleration (default: Channel 1 active, 50,000 max timesteps)
 .\.venv\Scripts\python main.py
+
+# Run on a specific channel (e.g. Channel 2, 3, or 4) with others 50-Ohm terminated
+.\.venv\Scripts\python main.py --channel 2
+
+# Run with all 4 channels driven simultaneously (active broadside beamforming array)
+.\.venv\Scripts\python main.py --channel all
+
+# Run with custom max timesteps (default: 50000, eliminating openEMS warning)
+.\.venv\Scripts\python main.py --max-timesteps 60000
 
 # Optional: Run with CPU multithreading
 .\.venv\Scripts\python main.py --engine multithreaded
@@ -104,7 +115,7 @@ Test_Antenna/
 .\.venv\Scripts\python main.py --view
 
 # Optional: Re-run post-processing on an existing simulation folder
-.\.venv\Scripts\python main.py --post-process SimResult\2026-10-09_19-41-31
+.\.venv\Scripts\python main.py --post-process SimResult\2026-10-09_19-55-03 --channel all
 ```
 
 ---
@@ -124,5 +135,7 @@ Each simulation run generates a self-contained results folder in `SimResult/` wi
 9. **`s_parameters_data.csv`**: Full multi-port S-parameter matrix and impedance data.
 10. **`radiation_pattern_77ghz.csv`**: Angular far-field directivity data for E-plane and H-plane cuts.
 11. **`openEMS_model.xml`**: CSXCAD 3D geometry file inspectable with `AppCSXCAD.exe`.
-12. **`simulation_summary.json`**: Machine-readable JSON summary containing all key metrics.
-13. **`simulation_report.txt`**: Formatted text report summarizing array architecture and RF performance.
+12. **`openEMS.log`**: Raw openEMS FDTD solver engine log capturing full GPU Vulkan initialization, operator matrix allocation, UPML layer counts, timestep iterations, speed (MC/s), and energy decay.
+13. **`simulation.log`**: Complete end-to-end Python execution log recording configuration parameters, mesh statistics, solver progress, and RF extraction steps.
+14. **`simulation_summary.json`**: Machine-readable JSON summary containing all key metrics.
+15. **`simulation_report.txt`**: Formatted text report summarizing array architecture and RF performance.

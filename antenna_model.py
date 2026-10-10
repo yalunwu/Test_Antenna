@@ -126,8 +126,34 @@ class PatchAntennaArray77GHz:
         self.sub_y_max = self.total_array_length + self.sub_margin_y
         self.sub_l = self.sub_y_max - self.sub_y_min
 
-    def create_simulation(self, end_criteria: float = 1e-4, nr_ts: int = 20000):
-        """Instantiate CSXCAD geometry and openEMS FDTD solver for the 4-channel array."""
+    def create_simulation(self, end_criteria: float = 1e-4, nr_ts: int = 50000, active_channels=1):
+        """
+        Instantiate CSXCAD geometry and openEMS FDTD solver for the 4-channel array.
+        
+        Parameters
+        ----------
+        end_criteria : float
+            FDTD energy decay termination criteria (default: 1e-4 = -40 dB).
+        nr_ts : int
+            Maximum number of FDTD timesteps (default: 50000, ensures >= 3x excitation length).
+        active_channels : int, str, or list
+            Which channel(s) are actively excited:
+            - 1, 2, 3, or 4: Single channel driven, remaining channels terminated in 50 Ohm.
+            - 'all' or [1, 2, 3, 4]: All 4 channels simultaneously driven in-phase.
+        """
+        if active_channels is None:
+            self.active_channels = {1}
+        elif isinstance(active_channels, str) and active_channels.strip().lower() in ('all', 'array'):
+            self.active_channels = set(range(1, self.num_channels + 1))
+        elif isinstance(active_channels, (list, tuple, set)):
+            self.active_channels = {int(c) for c in active_channels}
+        else:
+            try:
+                ch = int(active_channels)
+                self.active_channels = {ch} if 1 <= ch <= self.num_channels else {1}
+            except Exception:
+                self.active_channels = {1}
+
         FDTD = openEMS(NrTS=nr_ts, EndCriteria=end_criteria)
         
         # Excitation pulse covering band
@@ -192,13 +218,13 @@ class PatchAntennaArray77GHz:
                 c_box_stop = [x_center + self.connect_width / 2.0, c_end, self.sub_h]
                 copper.AddBox(start=c_box_start, stop=c_box_stop, priority=10)
         
-        # 6. Lumped 50-Ohm Ports (Port 1 is excited; Ports 2..N are matched 50-Ohm terminations)
+        # 6. Lumped 50-Ohm Ports (Driven ports excited; others terminated in 50-Ohm matched loads)
         ports = []
         for ch_idx, x_center in enumerate(self.channel_offsets_x):
             port_nr = ch_idx + 1
             port_start = [x_center - self.feed_width / 2.0, 0.0, 0.0]
             port_stop = [x_center + self.feed_width / 2.0, 0.0, self.sub_h]
-            excite_val = 1.0 if ch_idx == 0 else 0.0
+            excite_val = 1.0 if port_nr in self.active_channels else 0.0
             port = FDTD.AddLumpedPort(port_nr, 50.0, port_start, port_stop, 'z', excite_val, priority=20, edges2grid='xy')
             ports.append(port)
         

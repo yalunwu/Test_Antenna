@@ -48,19 +48,37 @@ def main():
         default=40.0,
         help="Target mesh resolution in cells per wavelength (e.g. 22=standard ~770k cells, 30=fine ~1.8M cells, 40=ultra ~4.1M cells)"
     )
+    parser.add_argument(
+        '--channel',
+        choices=['1', '2', '3', '4', 'all'],
+        default='1',
+        help="Active channel excitation ('1', '2', '3', '4' for single-channel with others 50-Ohm terminated, or 'all' for in-phase array excitation)"
+    )
+    parser.add_argument(
+        '--max-timesteps',
+        type=int,
+        default=50000,
+        help="Maximum FDTD timesteps (default: 50000, >= 3x excitation length to avoid openEMS warning)"
+    )
     
     args = parser.parse_args()
     
     if args.post_process:
         from simulate import post_process_directory
         target_dir = pathlib.Path(args.post_process).resolve()
-        post_process_directory(target_dir)
+        post_process_directory(
+            target_dir,
+            channel=args.channel,
+            max_timesteps=args.max_timesteps
+        )
         output_dir = target_dir
     else:
         output_dir = run_simulation(
             engine=args.engine,
             num_threads=args.threads,
-            cells_per_wavelength=args.cells_per_wavelength
+            cells_per_wavelength=args.cells_per_wavelength,
+            channel=args.channel,
+            max_timesteps=args.max_timesteps
         )
     
     if args.view:
