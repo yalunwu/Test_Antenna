@@ -46,7 +46,8 @@ class PatchAntennaArray77GHz:
                  h_core: float = 0.800,         # mm (FR-4 core thickness in 4-layer stackup)
                  eps_core: float = 4.40,        # FR-4 core dielectric constant
                  tan_d_core: float = 0.020,     # FR-4 core loss tangent
-                 is_4layer: bool = True         # Enable realistic 4-layer stackup
+                 is_4layer: bool = True,        # Enable realistic 4-layer stackup
+                 cells_per_wavelength: float = 40.0  # Mesh resolution (cells per lambda_0)
                  ):
         self.f_center = f_center
         self.f_start = f_start
@@ -54,6 +55,7 @@ class PatchAntennaArray77GHz:
         self.num_channels = num_channels
         self.channel_spacing = channel_spacing
         self.num_elements = num_elements
+        self.cells_per_wavelength = cells_per_wavelength
         
         # Channel offsets along x (centered around x = 0)
         self.channel_offsets_x = [
@@ -201,20 +203,34 @@ class PatchAntennaArray77GHz:
             ports.append(port)
         
         # 7. Mesh grid definition
-        res = self.lambda0_mm / 22.0  # target grid resolution in free space (~0.18 mm)
+        res = self.lambda0_mm / self.cells_per_wavelength  # target grid resolution in free space
+        
+        # Scaling mesh lines based on resolution
+        if self.cells_per_wavelength >= 36:
+            nz_sub = 6
+            nz_core = 9
+            smooth_ratio = 1.30
+        elif self.cells_per_wavelength >= 26:
+            nz_sub = 5
+            nz_core = 7
+            smooth_ratio = 1.35
+        else:
+            nz_sub = 4
+            nz_core = 5
+            smooth_ratio = 1.40
         
         # Z-direction: substrate layers + air buffer
         if self.is_4layer:
             z_lines = np.concatenate([
                 [-self.h_core - self.lambda0_mm / 2.0],
-                np.linspace(-self.h_core, 0.0, 5),
-                np.linspace(0.0, self.sub_h, 4),
+                np.linspace(-self.h_core, 0.0, nz_core),
+                np.linspace(0.0, self.sub_h, nz_sub),
                 [self.sub_h + self.lambda0_mm * 1.5]
             ])
         else:
             z_lines = np.concatenate([
                 [-self.lambda0_mm / 2.0],
-                np.linspace(0.0, self.sub_h, 4),
+                np.linspace(0.0, self.sub_h, nz_sub),
                 [self.sub_h + self.lambda0_mm * 1.5]
             ])
         mesh.AddLine('z', np.unique(z_lines))
@@ -246,10 +262,10 @@ class PatchAntennaArray77GHz:
             y_features.extend([c_start, c_end])
         mesh.AddLine('y', y_features)
         
-        # Smooth mesh with ratio 1.4
-        mesh.SmoothMeshLines('x', res, 1.4)
-        mesh.SmoothMeshLines('y', res, 1.4)
-        mesh.SmoothMeshLines('z', res, 1.4)
+        # Smooth mesh with ratio
+        mesh.SmoothMeshLines('x', res, smooth_ratio)
+        mesh.SmoothMeshLines('y', res, smooth_ratio)
+        mesh.SmoothMeshLines('z', res, smooth_ratio)
         
         # 8. Near-Field to Far-Field (NF2FF) Box
         nf2ff = FDTD.CreateNF2FFBox()

@@ -370,7 +370,9 @@ def post_process_directory(output_dir: pathlib.Path,
             "dielectric_2_material": "FR-4 Structural Core" if antenna.is_4layer else "None",
             "dielectric_2_thickness_mm": antenna.h_core if antenna.is_4layer else 0.0,
             "layer_4_ground": "Continuous Bottom Ground / Shielding Plane" if antenna.is_4layer else "None",
-            "total_board_thickness_mm": round(antenna.sub_h + (antenna.h_core if antenna.is_4layer else 0.0), 3)
+            "total_board_thickness_mm": round(antenna.sub_h + (antenna.h_core if antenna.is_4layer else 0.0), 3),
+            "cells_per_wavelength": antenna.cells_per_wavelength,
+            "max_mesh_resolution_um": round(antenna.lambda0_mm / antenna.cells_per_wavelength * 1e3, 1)
         }
     }
     
@@ -457,7 +459,7 @@ GENERATED OUTPUT FILES
     print(f"Results saved in:         {output_dir}")
     print("=" * 70)
 
-def run_simulation(engine: str = 'vulkan', num_threads: int = 0) -> pathlib.Path:
+def run_simulation(engine: str = 'vulkan', num_threads: int = 0, cells_per_wavelength: float = 40.0) -> pathlib.Path:
     # 1. Record start time and create timestamped directory
     start_dt = datetime.datetime.now()
     timestamp_str = start_dt.strftime("%Y-%m-%d_%H-%M-%S")
@@ -474,6 +476,7 @@ def run_simulation(engine: str = 'vulkan', num_threads: int = 0) -> pathlib.Path
     print(f"Output Directory:     {output_dir}")
     print(f"Channels:             4 channels side-by-side, 5.0 mm center-to-center")
     print(f"Stackup Architecture: 4-Layer Automotive mmWave Radar")
+    print(f"Mesh Resolution:      {cells_per_wavelength:.1f} cells/lambda_0 (~{(3.896/cells_per_wavelength)*1e3:.1f} um cell)")
     print(f"Band of Interest:     76.0 GHz to 78.0 GHz (Center: 77.0 GHz)")
     print(f"Solver Engine:        {engine}")
     print("=" * 70)
@@ -494,7 +497,8 @@ def run_simulation(engine: str = 'vulkan', num_threads: int = 0) -> pathlib.Path
         trans_length=0.615,   # mm
         connect_width=0.150,  # mm
         connect_length=1.340, # mm
-        is_4layer=True
+        is_4layer=True,
+        cells_per_wavelength=cells_per_wavelength
     )
     
     # Generate antenna visual models and layout diagrams

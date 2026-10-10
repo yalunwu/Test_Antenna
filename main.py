@@ -42,6 +42,12 @@ def main():
         default=None,
         help="Path to an existing timestamped directory in SimResult to re-run post-processing"
     )
+    parser.add_argument(
+        '--cells-per-wavelength',
+        type=float,
+        default=40.0,
+        help="Target mesh resolution in cells per wavelength (e.g. 22=standard ~770k cells, 30=fine ~1.8M cells, 40=ultra ~4.1M cells)"
+    )
     
     args = parser.parse_args()
     
@@ -51,7 +57,11 @@ def main():
         post_process_directory(target_dir)
         output_dir = target_dir
     else:
-        output_dir = run_simulation(engine=args.engine, num_threads=args.threads)
+        output_dir = run_simulation(
+            engine=args.engine,
+            num_threads=args.threads,
+            cells_per_wavelength=args.cells_per_wavelength
+        )
     
     if args.view:
         xml_file = output_dir / "openEMS_model.xml"
