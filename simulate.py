@@ -322,7 +322,7 @@ def post_process_directory(output_dir: pathlib.Path,
         ax1.axvline(f_center_ghz, color='purple', linestyle=':', linewidth=1.2)
         
     ax1.set_xlim([f_band_ghz[0], f_band_ghz[-1]])
-    ax1.set_ylim([max(-35.0, np.floor(min_s11_db / 5) * 5 - 5), 0.0])
+    ax1.set_ylim([min(-35.0, np.floor(min_s11_db / 5) * 5 - 5), 0.0])
     ax1.set_xlabel('Frequency (GHz)', fontsize=11)
     ax1.set_ylabel('|S-Parameter| (dB)', fontsize=11)
     ax1.set_title(f'{antenna.title} — Return Loss / Reflection (Operating Band)', fontsize=11.5, fontweight='bold')

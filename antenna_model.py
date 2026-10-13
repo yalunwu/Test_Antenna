@@ -1388,13 +1388,981 @@ class TI24GHzSWRU120DAntenna(BaseAntennaModel):
 
 
 # ==============================================================================
+# 4. MDPI 24 GHz 4x1 Microstrip Patch Array (Electronics 2023, 12(7), 1512)
+# ==============================================================================
+
+class MDPI24GHzPatchArrayAntenna(BaseAntennaModel):
+    """
+    24 GHz 4x1 Microstrip Square Patch Array Antenna with Shunt-Connected Series Tapered Feed Network,
+    with optional dual tilted metallic plates for high gain enhancement.
+    Direct implementation of MDPI Electronics 2023, 12(7), 1512
+    (https://doi.org/10.3390/electronics12071512)
+    "Gain Enhancement of Microstrip Patch Array Antennas Using Two Metallic Plates for 24 GHz Radar Applications"
+    by Junho Yeo and Jong-Ig Lee.
+
+    Stackup & Substrate:
+      - Layer 1 (Top Cu): 4x1 Inset-Fed Square Patch Array with 1:5:5:1 Tapered Feed Network
+      - Dielectric: 0.254 mm (10 mil) HF-350F (eps_r = 3.50, tan_d = 0.0029)
+      - Layer 2: Continuous Copper Ground Plane (30.0 mm x 12.0 mm)
+      - (Optional) Two 50 mm x 30 mm Copper Plates flared at 70° for +7 dB gain boost
+    """
+    def __init__(self,
+                 with_plates: bool = False,
+                 plate_length: float = 50.0,
+                 plate_angle_deg: float = 70.0,
+                 cells_per_wavelength: float = 60.0):
+        self.with_plates = with_plates
+        self.plate_length = float(plate_length)
+        self.plate_angle_deg = float(plate_angle_deg)
+        
+        name_str = "mdpi_24ghz_plates" if with_plates else "mdpi_24ghz_array"
+        title_str = ("MDPI 24 GHz 4x1 Array with 70° Metallic Plates (Electronics 12/7/1512)"
+                     if with_plates else
+                     "MDPI 24 GHz 4x1 Microstrip Patch Array (Electronics 12/7/1512)")
+        
+        super().__init__(
+            name=name_str,
+            title=title_str,
+            doc_reference="MDPI Electronics 2023, 12(7), 1512 (https://doi.org/10.3390/electronics12071512)",
+            f_center=24.125e9,
+            f_start=24.00e9,
+            f_stop=24.25e9,
+            f_wide_start=23.50e9,
+            f_wide_stop=24.75e9,
+            cells_per_wavelength=max(60.0, float(cells_per_wavelength))
+        )
+        self.sub_w = 30.0   # mm (Wg2)
+        self.sub_l = 12.0   # mm (Lg2)
+        self.sub_h = 0.254  # mm (10 mil)
+        self.sub_eps_r = 3.50
+        self.sub_tan_d = 0.0029
+        self.sub_kappa = 2 * np.pi * self.f_center * EPS0 * self.sub_eps_r * self.sub_tan_d
+        
+        # Dimensions from paper Section 2 & Figures 1, 3, 5 (mm)
+        self.L1 = 3.22      # Square patch length & width
+        self.l2 = 7.49      # Element spacing (~1 guided wavelength)
+        self.l1 = 1.87      # QWT length (1/4 * l2)
+        self.l3 = 3.75      # Outer bus line segment
+        self.w1 = 0.54      # 50-Ohm feed line width
+        self.w2 = 0.125     # 100-Ohm branch lines width
+        self.w3 = 0.16      # QWT 1 width (91.3 Ohm)
+        self.w4 = 0.65      # QWT 2 width (44.7 Ohm)
+        self.r1 = 0.45      # Port 1 matching circular disk radius
+        self.wis2 = 0.25    # Inset notch gap width
+        self.lis2 = 1.10    # Inset depth into patch
+        
+        # Vertical placement
+        self.y_bus = -3.00
+        self.y_bot = self.y_bus + self.l1   # -1.13 mm
+        self.y_top = self.y_bot + self.L1   # +2.09 mm
+        self.y_port = self.y_bus + self.l1  # -1.13 mm
+        
+        # 4 Patch centers along x
+        self.x_patches = [-1.5 * self.l2, -0.5 * self.l2, 0.5 * self.l2, 1.5 * self.l2]
+        
+        # Metallic plates geometry
+        self.theta_rad = np.deg2rad(self.plate_angle_deg)
+        self.dy_plate = self.plate_length * np.cos(self.theta_rad) if self.with_plates else 0.0
+        self.dz_plate = self.plate_length * np.sin(self.theta_rad) if self.with_plates else 0.0
+
+    def get_proven_specs(self) -> dict:
+        if self.with_plates:
+            return {
+                "source_doc": "MDPI Electronics 2023, 12(7), 1512 (Figures 7–10 & Table 1)",
+                "operating_band": "24.00 – 24.25 GHz K-Band Radar",
+                "nominal_center_freq_ghz": 24.125,
+                "proven_s11_reflection_db": "< -20.0 dB at 24.125 GHz (VSWR < 2: 23.767 – 24.414 GHz)",
+                "proven_10db_bandwidth_mhz": "647 MHz (23.767 – 24.414 GHz, 2.69%)",
+                "proven_peak_gain_dbi": "18.29 dBi (simulated) / 16.8 dBi (measured) [+7.2 dB gain boost]",
+                "proven_elevation_hpbw_deg": "Narrow focused elevation beam (flared horn effect)",
+                "proven_azimuth_hpbw_deg": "26.6° (H-Plane / z-x plane)",
+                "proven_sidelobe_level_db": "-26.65 dB (simulated) / -33.66 dB (measured)",
+                "metallic_plates": f"Two {self.plate_length:.1f} mm copper plates at {self.plate_angle_deg:.1f}° tilt (aperture 100 mm x 30 mm)",
+                "antenna_dimensions": f"{self.sub_w:.1f} mm x {self.sub_l:.1f} mm PCB with {self.plate_length:.1f} mm flared plates",
+                "substrate_material": "HF-350F (eps_r = 3.50, tan_d = 0.0029, h = 0.254 mm / 10 mil)"
+            }
+        else:
+            return {
+                "source_doc": "MDPI Electronics 2023, 12(7), 1512 (Figures 5 & 6)",
+                "operating_band": "24.00 – 24.25 GHz K-Band Radar",
+                "nominal_center_freq_ghz": 24.125,
+                "proven_s11_reflection_db": "< -20.0 dB at 24.125 GHz (VSWR < 2: 23.836 – 24.402 GHz)",
+                "proven_10db_bandwidth_mhz": "566 MHz (23.836 – 24.402 GHz, 2.35%)",
+                "proven_peak_gain_dbi": "11.11 dBi (simulated) / 9.8 dBi (measured)",
+                "proven_elevation_hpbw_deg": "75.5° (E-Plane / y-z plane)",
+                "proven_azimuth_hpbw_deg": "26.6° (H-Plane / z-x plane)",
+                "proven_sidelobe_level_db": "-21.3 dB (simulated) / -17.83 dB (measured)",
+                "antenna_dimensions": f"{self.sub_w:.1f} mm x {self.sub_l:.1f} mm compact PCB",
+                "substrate_material": "HF-350F (eps_r = 3.50, tan_d = 0.0029, h = 0.254 mm / 10 mil)"
+            }
+
+    def _get_trace_boxes(self):
+        """Return all copper rectangular trace blocks."""
+        boxes = []
+        
+        # 1. Four Inset-fed Patches
+        for idx, xc in enumerate(self.x_patches):
+            # Left wing of patch
+            boxes.append((f'patch_{idx+1}_left', xc - self.L1/2, xc - self.w2/2 - self.wis2, self.y_bot, self.y_top))
+            # Right wing of patch
+            boxes.append((f'patch_{idx+1}_right', xc + self.w2/2 + self.wis2, xc + self.L1/2, self.y_bot, self.y_top))
+            # Upper head of patch above inset
+            boxes.append((f'patch_{idx+1}_head', xc - self.w2/2 - self.wis2, xc + self.w2/2 + self.wis2, self.y_bot + self.lis2, self.y_top))
+            # Inset tongue
+            boxes.append((f'patch_{idx+1}_tongue', xc - self.w2/2, xc + self.w2/2, self.y_bot, self.y_bot + self.lis2))
+            # Vertical branch from bus
+            boxes.append((f'branch_{idx+1}', xc - self.w2/2, xc + self.w2/2, self.y_bus, self.y_bot))
+            
+        # 2. Port 1 Feed Line & Matching Disk Box
+        boxes.append(('feed_port1', -self.w1/2, self.w1/2, self.y_bus, self.y_port))
+        boxes.append(('disk_port1', -self.r1, self.r1, self.y_port - self.r1, self.y_port + self.r1))
+        
+        # 3. Horizontal Bus (Right half)
+        boxes.append(('bus_r1', 0.0, self.l1, self.y_bus - self.w2/2, self.y_bus + self.w2/2))
+        boxes.append(('bus_r2_qwt1', self.l1, 2*self.l1, self.y_bus - self.w3/2, self.y_bus + self.w3/2))
+        boxes.append(('bus_r3', 2*self.l1, 3*self.l1, self.y_bus - self.w2/2, self.y_bus + self.w2/2))
+        boxes.append(('bus_r4_qwt2', 3*self.l1, 4*self.l1, self.y_bus - self.w4/2, self.y_bus + self.w4/2))
+        boxes.append(('bus_r5', 4*self.l1, self.x_patches[3], self.y_bus - self.w2/2, self.y_bus + self.w2/2))
+        
+        # 4. Horizontal Bus (Left half)
+        boxes.append(('bus_l1', -self.l1, 0.0, self.y_bus - self.w2/2, self.y_bus + self.w2/2))
+        boxes.append(('bus_l2_qwt1', -2*self.l1, -self.l1, self.y_bus - self.w3/2, self.y_bus + self.w3/2))
+        boxes.append(('bus_l3', -3*self.l1, -2*self.l1, self.y_bus - self.w2/2, self.y_bus + self.w2/2))
+        boxes.append(('bus_l4_qwt2', -4*self.l1, -3*self.l1, self.y_bus - self.w4/2, self.y_bus + self.w4/2))
+        boxes.append(('bus_l5', self.x_patches[0], -4*self.l1, self.y_bus - self.w2/2, self.y_bus + self.w2/2))
+        
+        return boxes
+
+    def create_simulation(self, end_criteria: float = 1e-4, nr_ts: int = 40000, active_channels=1):
+        """Construct CSXCAD model and openEMS FDTD configuration."""
+        FDTD = openEMS(NrTS=nr_ts, EndCriteria=end_criteria)
+        fc = 2.5e9  # 2.5 GHz Gaussian pulse bandwidth around 24.125 GHz
+        FDTD.SetGaussExcite(self.f_center, fc)
+        FDTD.SetBoundaryCond(['PML_8', 'PML_8', 'PML_8', 'PML_8', 'PML_8', 'PML_8'])
+        
+        CSX = ContinuousStructure()
+        FDTD.SetCSX(CSX)
+        mesh = CSX.GetGrid()
+        mesh.SetDeltaUnit(self.unit)
+        
+        # 1. Materials
+        sub = CSX.AddMaterial('hf350f', epsilon=self.sub_eps_r, kappa=self.sub_kappa)
+        copper = CSX.AddMetal('copper')
+        
+        # 2. Substrate
+        sub.AddBox([-self.sub_w/2, -self.sub_l/2, 0.0],
+                   [self.sub_w/2, self.sub_l/2, self.sub_h], priority=1)
+                   
+        # 3. Ground plane at z = 0
+        copper.AddBox([-self.sub_w/2, -self.sub_l/2, 0.0],
+                      [self.sub_w/2, self.sub_l/2, 0.0], priority=10)
+                      
+        # 4. Top copper traces & patches
+        boxes = self._get_trace_boxes()
+        for name, xl, xr, yb, yt in boxes:
+            copper.AddBox([xl, yb, self.sub_h], [xr, yt, self.sub_h], priority=10)
+            
+        # Matching disk at Port 1
+        copper.AddBox([-self.r1, self.y_port - self.r1, self.sub_h],
+                      [self.r1, self.y_port + self.r1, self.sub_h], priority=11)
+                           
+        # 5. Dual Metallic Plates (if enabled)
+        dy_thick = 0.0
+        if self.with_plates and self.plate_length > 0:
+            # Physical plate thickness of 0.8 mm normal to slant (acrylic backing + copper)
+            # Ensuring continuous Yee-cell PEC conductor boundary along 70° flare
+            t_plate = 0.8
+            sin_th = np.sin(self.theta_rad)
+            dy_thick = t_plate / sin_th  # ~0.85 mm in Y
+            
+            # Top Plate flared along +y, +z at theta = 70°
+            y0, z0 = self.sub_l/2, 0.0
+            y1, z1 = self.sub_l/2 + self.dy_plate, self.dz_plate
+            pts_top_y = [y0, y1, y1 + dy_thick, y0 + dy_thick]
+            pts_top_z = [0.0, z1, z1, 0.0]
+            copper.AddLinPoly(np.array([pts_top_y, pts_top_z]), 'x', -self.sub_w/2, self.sub_w, priority=15)
+            
+            # Bottom Plate flared along -y, +z at theta = 70°
+            pts_bot_y = [-y0, -y1, -y1 - dy_thick, -y0 - dy_thick]
+            pts_bot_z = [0.0, z1, z1, 0.0]
+            copper.AddLinPoly(np.array([pts_bot_y, pts_bot_z]), 'x', -self.sub_w/2, self.sub_w, priority=15)
+            
+        # 6. Lumped 50-Ohm Port at coaxial feed location
+        port_start = [-self.w1/2, self.y_port - self.r1, 0.0]
+        port_stop = [self.w1/2, self.y_port + self.r1, self.sub_h]
+        port = FDTD.AddLumpedPort(1, 50.0, port_start, port_stop, 'z', 1.0, priority=20, edges2grid='xy')
+        
+        # 7. Mesh Definition (guaranteeing >= 60 cells/lambda everywhere)
+        res = self.lambda0_mm / self.cells_per_wavelength
+        air_pad = self.lambda0_mm * 0.45
+        
+        # Z lines
+        nz_sub = 4
+        z_sub = np.linspace(0.0, self.sub_h, nz_sub + 1)
+        z_top_limit = (self.dz_plate + air_pad) if self.with_plates else (self.sub_h + air_pad)
+        z_features = [-air_pad] + list(z_sub) + ([self.dz_plate] if self.with_plates else []) + [z_top_limit]
+        z_lines = self._smooth_mesh(np.array(z_features), res, ratio=1.30)
+        
+        # X lines
+        x_features = [-self.sub_w/2 - air_pad, -self.sub_w/2, self.sub_w/2, self.sub_w/2 + air_pad]
+        for _, xl, xr, _, _ in boxes:
+            x_features.extend([xl, xr])
+        x_lines = self._smooth_mesh(np.array(x_features), res, ratio=1.30)
+        
+        # Y lines
+        y_bot_limit = (-self.sub_l/2 - self.dy_plate - dy_thick - air_pad) if self.with_plates else (-self.sub_l/2 - air_pad)
+        y_top_limit = (self.sub_l/2 + self.dy_plate + dy_thick + air_pad) if self.with_plates else (self.sub_l/2 + air_pad)
+        y_features = [y_bot_limit, -self.sub_l/2, self.sub_l/2, y_top_limit]
+        if self.with_plates:
+            y_features.extend([
+                -self.sub_l/2 - self.dy_plate - dy_thick,
+                -self.sub_l/2 - self.dy_plate,
+                self.sub_l/2 + self.dy_plate,
+                self.sub_l/2 + self.dy_plate + dy_thick
+            ])
+        for _, _, _, yb, yt in boxes:
+            y_features.extend([yb, yt])
+        y_lines = self._smooth_mesh(np.array(y_features), res, ratio=1.30)
+        
+        mesh.AddLine('x', x_lines)
+        mesh.AddLine('y', y_lines)
+        mesh.AddLine('z', z_lines)
+        
+        # 8. NF2FF
+        nf2ff = FDTD.CreateNF2FFBox()
+        return FDTD, CSX, [port], nf2ff
+
+    def draw_layout(self, output_path: str):
+        """Generate high-resolution 2D engineering layout diagram."""
+        fig, (ax_plan, ax_side) = plt.subplots(1, 2, figsize=(15, 6),
+                                               gridspec_kw={'width_ratios': [1.4, 0.9]},
+                                               tight_layout=True)
+        # Plan view
+        sub_rect = mpatches.Rectangle((-self.sub_w/2, -self.sub_l/2), self.sub_w, self.sub_l,
+                                     facecolor='#e2e8f0', edgecolor='#64748b', linewidth=1.5,
+                                     label='HF-350F Substrate (eps_r=3.50)')
+        ax_plan.add_patch(sub_rect)
+        
+        boxes = self._get_trace_boxes()
+        for name, xl, xr, yb, yt in boxes:
+            if 'disk' in name:
+                continue
+            r = mpatches.Rectangle((xl, yb), xr - xl, yt - yb,
+                                   facecolor='#d97706', edgecolor='#b45309', linewidth=0.8)
+            ax_plan.add_patch(r)
+            
+        # Disk
+        disk = mpatches.Circle((0.0, self.y_port), self.r1, facecolor='#b45309', edgecolor='#78350f', linewidth=1.0)
+        ax_plan.add_patch(disk)
+        
+        # Show plate projections if enabled
+        if self.with_plates:
+            plate_top = mpatches.Rectangle((-self.sub_w/2, self.sub_l/2), self.sub_w, self.dy_plate,
+                                           facecolor='#fbbf24', edgecolor='#b45309', linestyle='--', alpha=0.35,
+                                           label=f'Top Flared Plate ({self.plate_length:.0f} mm @ {self.plate_angle_deg:.0f}°)')
+            plate_bot = mpatches.Rectangle((-self.sub_w/2, -self.sub_l/2 - self.dy_plate), self.sub_w, self.dy_plate,
+                                           facecolor='#fbbf24', edgecolor='#b45309', linestyle='--', alpha=0.35,
+                                           label=f'Bottom Flared Plate ({self.plate_length:.0f} mm @ {self.plate_angle_deg:.0f}°)')
+            ax_plan.add_patch(plate_top)
+            ax_plan.add_patch(plate_bot)
+            
+        # Annotations
+        ax_plan.annotate(f'Wg2 = {self.sub_w:.1f} mm', xy=(0, self.sub_l/2 + (self.dy_plate if self.with_plates else 0) + 0.8),
+                         ha='center', va='bottom', fontsize=10, fontweight='bold', color='#1e293b')
+        ax_plan.annotate(f'Lg2 = {self.sub_l:.1f} mm', xy=(-self.sub_w/2 - 0.8, 0),
+                         ha='right', va='center', fontsize=10, fontweight='bold', color='#1e293b', rotation=90)
+        ax_plan.annotate(f'L1 = {self.L1:.2f} mm', xy=(self.x_patches[0], self.y_top + 0.6),
+                         ha='center', va='bottom', fontsize=9, color='#0369a1')
+        ax_plan.annotate(f'l2 = {self.l2:.2f} mm', xy=((self.x_patches[0] + self.x_patches[1])/2, self.y_top + 0.6),
+                         ha='center', va='bottom', fontsize=8, color='#047857')
+        ax_plan.annotate('Port 1 (50-Ohm)', xy=(0, self.y_port - 0.8),
+                         ha='center', va='top', fontsize=8, fontweight='bold', color='#b91c1c')
+                         
+        y_lim_extra = (self.dy_plate + 2.0) if self.with_plates else 2.5
+        ax_plan.set_xlim(-self.sub_w/2 - 3.0, self.sub_w/2 + 3.0)
+        ax_plan.set_ylim(-self.sub_l/2 - y_lim_extra, self.sub_l/2 + y_lim_extra)
+        ax_plan.set_aspect('equal')
+        title_suffix = " with Dual 70° Flared Metallic Plates" if self.with_plates else ""
+        ax_plan.set_title(f"MDPI 24 GHz 4x1 Microstrip Patch Array{title_suffix}\n(MDPI Electronics 2023, 12(7), 1512)",
+                          fontsize=11, fontweight='bold')
+        ax_plan.set_xlabel('X Dimension (mm)')
+        ax_plan.set_ylabel('Y Dimension (mm)')
+        ax_plan.legend(loc='lower left', fontsize=8)
+        ax_plan.grid(True, linestyle=':', alpha=0.5)
+        
+        # Side view (Stackup & plate flare)
+        ax_side.set_title("PCB Stackup & Flared Plate Cross-Section (YZ)", fontsize=11, fontweight='bold')
+        ax_side.add_patch(mpatches.Rectangle((-self.sub_l/2, 0.0), self.sub_l, self.sub_h,
+                                            facecolor='#e2e8f0', edgecolor='#64748b', linewidth=1.2,
+                                            label=f'HF-350F ({self.sub_h*1000:.0f} um / 10 mil)'))
+        ax_side.plot([-self.sub_l/2, self.sub_l/2], [0.0, 0.0], color='#b45309', linewidth=3.0, label='Bottom Ground (35 um Cu)')
+        ax_side.plot([self.y_bot, self.y_top], [self.sub_h, self.sub_h], color='#d97706', linewidth=3.0, label='Top Cu Patches (35 um Cu)')
+        
+        if self.with_plates:
+            # Top plate
+            ax_side.plot([self.sub_l/2, self.sub_l/2 + self.dy_plate], [0.0, self.dz_plate],
+                         color='#b45309', linewidth=3.5, label=f'Copper Plate (50 mm @ {self.plate_angle_deg:.0f}°)')
+            # Bottom plate
+            ax_side.plot([-self.sub_l/2, -self.sub_l/2 - self.dy_plate], [0.0, self.dz_plate],
+                         color='#b45309', linewidth=3.5)
+            ax_side.annotate(f'Aperture = {2*(self.sub_l/2 + self.dy_plate):.1f} mm',
+                             xy=(0, self.dz_plate + 2.0), ha='center', va='bottom', fontsize=9, fontweight='bold', color='#b45309')
+            ax_side.set_xlim(-self.sub_l/2 - self.dy_plate - 5.0, self.sub_l/2 + self.dy_plate + 5.0)
+            ax_side.set_ylim(-3.0, self.dz_plate + 6.0)
+        else:
+            ax_side.set_xlim(-self.sub_l/2 - 2.0, self.sub_l/2 + 2.0)
+            ax_side.set_ylim(-0.8, 1.8)
+            
+        ax_side.set_xlabel('Y Dimension (mm)')
+        ax_side.set_ylabel('Z Dimension (mm)')
+        ax_side.legend(loc='upper right', fontsize=8)
+        ax_side.grid(True, linestyle=':', alpha=0.5)
+        
+        fig.savefig(output_path, dpi=300)
+        plt.close(fig)
+
+    def draw_3d_view(self, output_path: str):
+        """Generate publication-ready 3D isometric perspective diagram."""
+        fig = plt.figure(figsize=(11, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Substrate
+        z_top = self.sub_h
+        xx, yy = np.meshgrid([-self.sub_w/2, self.sub_w/2], [-self.sub_l/2, self.sub_l/2])
+        ax.plot_surface(xx, yy, np.full_like(xx, z_top), color='#94a3b8', alpha=0.30)
+        ax.plot_surface(xx, yy, np.zeros_like(xx), color='#b45309', alpha=0.75)
+        
+        # Patches and traces
+        boxes = self._get_trace_boxes()
+        for name, xl, xr, yb, yt in boxes:
+            px, py = np.meshgrid([xl, xr], [yb, yt])
+            ax.plot_surface(px, py, np.full_like(px, z_top + 0.02), color='#d97706', alpha=0.90)
+            
+        # Plates
+        if self.with_plates:
+            # Top plate
+            x_pl = np.array([-self.sub_w/2, self.sub_w/2])
+            y_top_pl = np.array([self.sub_l/2, self.sub_l/2 + self.dy_plate])
+            X_top, Y_top = np.meshgrid(x_pl, y_top_pl)
+            Z_top = (Y_top - self.sub_l/2) / self.dy_plate * self.dz_plate
+            ax.plot_surface(X_top, Y_top, Z_top, color='#f59e0b', alpha=0.60)
+            
+            # Bottom plate
+            y_bot_pl = np.array([-self.sub_l/2, -self.sub_l/2 - self.dy_plate])
+            X_bot, Y_bot = np.meshgrid(x_pl, y_bot_pl)
+            Z_bot = (-Y_bot - self.sub_l/2) / self.dy_plate * self.dz_plate
+            ax.plot_surface(X_bot, Y_bot, Z_bot, color='#f59e0b', alpha=0.60)
+            
+        title_suffix = " with 70° Flared Metallic Plates" if self.with_plates else ""
+        ax.set_title(f"MDPI 24 GHz 4x1 Microstrip Patch Array{title_suffix}\n(MDPI Electronics 2023, 12(7), 1512)",
+                     fontsize=11, fontweight='bold', pad=15)
+        ax.set_xlabel('X (mm)')
+        ax.set_ylabel('Y (mm)')
+        ax.set_zlabel('Z (mm)')
+        ax.view_init(elev=28, azim=-55)
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=300)
+        plt.close(fig)
+
+    def draw_interactive_3d(self, output_path: str):
+        """Generate interactive 3D WebGL Three.js HTML model with dark-theme HUD."""
+        boxes = self._get_trace_boxes()
+        boxes_js = []
+        for name, xl, xr, yb, yt in boxes:
+            xc = (xl + xr) / 2.0
+            yc = (yb + yt) / 2.0
+            xw = xr - xl
+            yw = yt - yb
+            boxes_js.append(f"{{ name: '{name}', x: {xc:.4f}, y: {yc:.4f}, w: {xw:.4f}, l: {yw:.4f} }}")
+        boxes_str = ",\n        ".join(boxes_js)
+        
+        specs = self.get_proven_specs()
+        gain_str = specs.get('proven_peak_gain_dbi', '18.29 dBi')
+        plates_note = f"Dual Flared Copper Plates: Length {self.plate_length:.0f} mm, Tilt {self.plate_angle_deg:.0f}°" if self.with_plates else "Bare Microstrip Patch Array (Compact)"
+        
+        plates_code = ""
+        if self.with_plates:
+            plates_code = f"""
+        // Dual Flared Metallic Plates
+        const plateMat = new THREE.MeshStandardMaterial({{ color: 0xf59e0b, metalness: 0.9, roughness: 0.25, side: THREE.DoubleSide }});
+        
+        // Top Plate
+        const topGeo = new THREE.BufferGeometry();
+        const topVerts = new Float32Array([
+            -subW/2,  subL/2, 0.0,
+             subW/2,  subL/2, 0.0,
+             subW/2,  subL/2 + {self.dy_plate:.4f}, {self.dz_plate:.4f},
+            -subW/2,  subL/2, 0.0,
+             subW/2,  subL/2 + {self.dy_plate:.4f}, {self.dz_plate:.4f},
+            -subW/2,  subL/2 + {self.dy_plate:.4f}, {self.dz_plate:.4f}
+        ]);
+        topGeo.setAttribute('position', new THREE.BufferAttribute(topVerts, 3));
+        topGeo.computeVertexNormals();
+        scene.add(new THREE.Mesh(topGeo, plateMat));
+        
+        // Bottom Plate
+        const botGeo = new THREE.BufferGeometry();
+        const botVerts = new Float32Array([
+            -subW/2, -subL/2, 0.0,
+             subW/2, -subL/2, 0.0,
+             subW/2, -subL/2 - {self.dy_plate:.4f}, {self.dz_plate:.4f},
+            -subW/2, -subL/2, 0.0,
+             subW/2, -subL/2 - {self.dy_plate:.4f}, {self.dz_plate:.4f},
+            -subW/2, -subL/2 - {self.dy_plate:.4f}, {self.dz_plate:.4f}
+        ]);
+        botGeo.setAttribute('position', new THREE.BufferAttribute(botVerts, 3));
+        botGeo.computeVertexNormals();
+        scene.add(new THREE.Mesh(botGeo, plateMat));
+        """
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{self.title}</title>
+    <style>
+        body {{ margin: 0; overflow: hidden; background: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #f8fafc; }}
+        #hud {{ position: absolute; top: 16px; left: 16px; background: rgba(15, 23, 42, 0.88); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 16px 20px; max-width: 380px; backdrop-filter: blur(8px); box-shadow: 0 4px 20px rgba(0,0,0,0.5); }}
+        h1 {{ margin: 0 0 6px 0; font-size: 15px; font-weight: 600; color: #38bdf8; }}
+        .badge {{ display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; background: #3b82f6; color: #fff; margin-bottom: 8px; }}
+        p {{ margin: 4px 0; font-size: 12px; color: #cbd5e1; }}
+        .metric {{ font-weight: 600; color: #f8fafc; }}
+        .controls {{ margin-top: 10px; font-size: 11px; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px; }}
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div id="hud">
+        <div class="badge">24 GHz Radar Array</div>
+        <h1>{self.title}</h1>
+        <p>Reference: <span class="metric">MDPI Electronics 2023, 12(7), 1512</span></p>
+        <p>Frequency: <span class="metric">24.125 GHz (24.0 – 24.25 GHz)</span></p>
+        <p>Substrate: <span class="metric">HF-350F (eps_r = 3.50, h = 0.254 mm)</span></p>
+        <p>Configuration: <span class="metric">{plates_note}</span></p>
+        <p>Expected Peak Gain: <span class="metric">{gain_str}</span></p>
+        <p>Sidelobe Level: <span class="metric">{specs.get('proven_sidelobe_level_db', 'N/A')}</span></p>
+        <div class="controls">
+            Left Click + Drag: Rotate | Right Click + Drag: Pan | Scroll: Zoom
+        </div>
+    </div>
+
+    <script>
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0f172a);
+        
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(25, -45, 45);
+        
+        const renderer = new THREE.WebGLRenderer({{ antialias: true }});
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+        
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        
+        // Lighting
+        const ambLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambLight);
+        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight1.position.set(40, -30, 60);
+        scene.add(dirLight1);
+        const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.4);
+        dirLight2.position.set(-40, 30, -30);
+        scene.add(dirLight2);
+        
+        const subW = {self.sub_w:.4f};
+        const subL = {self.sub_l:.4f};
+        const subH = {self.sub_h:.4f};
+        
+        // Substrate
+        const subGeo = new THREE.BoxGeometry(subW, subL, subH);
+        const subMat = new THREE.MeshStandardMaterial({{ color: 0x64748b, transparent: true, opacity: 0.40 }});
+        const sub = new THREE.Mesh(subGeo, subMat);
+        sub.position.set(0, 0, subH / 2.0);
+        scene.add(sub);
+        
+        // Ground plane
+        const gndGeo = new THREE.BoxGeometry(subW, subL, 0.02);
+        const gndMat = new THREE.MeshStandardMaterial({{ color: 0xb45309, metalness: 0.85, roughness: 0.25 }});
+        const gnd = new THREE.Mesh(gndGeo, gndMat);
+        gnd.position.set(0, 0, -0.01);
+        scene.add(gnd);
+        
+        // Copper traces
+        const traceMat = new THREE.MeshStandardMaterial({{ color: 0xd97706, metalness: 0.90, roughness: 0.20 }});
+        const boxes = [
+            {boxes_str}
+        ];
+        boxes.forEach(b => {{
+            if (b.name.includes('disk')) return;
+            const geo = new THREE.BoxGeometry(b.w, b.l, 0.035);
+            const mesh = new THREE.Mesh(geo, traceMat);
+            mesh.position.set(b.x, b.y, subH + 0.0175);
+            scene.add(mesh);
+        }});
+        
+        // Disk
+        const diskGeo = new THREE.CylinderGeometry({self.r1:.4f}, {self.r1:.4f}, 0.035, 32);
+        diskGeo.rotateX(Math.PI / 2);
+        const diskMesh = new THREE.Mesh(diskGeo, traceMat);
+        diskMesh.position.set(0.0, {self.y_port:.4f}, subH + 0.0175);
+        scene.add(diskMesh);
+        
+        {plates_code}
+        
+        function animate() {{
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }}
+        animate();
+        
+        window.addEventListener('resize', () => {{
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }});
+    </script>
+</body>
+</html>
+"""
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+
+
+# ==============================================================================
+# Model 6: Qorvo / DecaWave WB002 UWB Planar Monopole MAN Reference Antenna
+# ==============================================================================
+
+class QorvoWB002Antenna(BaseAntennaModel):
+    """
+    Qorvo / DecaWave WB002 Reference Planar Monopole Antenna ("MAN" Antenna).
+    Reference: WB002 Hardware Build Instruction Version 1.1 (DecaWave / Qorvo)
+    
+    Stackup & Substrate:
+      - Board Material: Standard FR-4 (eps_r = 4.30, tan_d = 0.020)
+      - Substrate Thickness: 0.8 mm (31 mil)
+      - Copper Thickness: 35 um (1 oz Cu, sigma = 5.8e7 S/m)
+      - Board Dimensions: 31.0 mm x 40.0 mm
+      - Operational Band: 3.0 GHz – 8.0 GHz (IEEE 802.15.4 UWB Channels 1–7)
+      - Characteristic Feed: 50 Ohm Microstrip (Width = 1.625 mm)
+      - Geometry: Exact Gerber-extracted 42-point "MAN" radiator and 26-point tapered ground plane
+    """
+    TOP_RADIATOR_PTS = [
+        (-6.8968, 12.7978), (-5.7545, 12.5230), (-4.6062, 11.9168), (-3.5280, 11.1259),
+        (-2.5930, 10.2930), (-1.8021, 9.4180), (-1.1542, 8.5006), (-0.6494, 7.5411),
+        (-0.2878, 6.5405), (-0.0704, 5.4977), (0.0037, 4.4144), (0.0037, -4.4144),
+        (-0.0704, -5.4977), (-0.2878, -6.5405), (-0.6494, -7.5411), (-1.1542, -8.5006),
+        (-1.8021, -9.4180), (-2.5930, -10.2930), (-3.5280, -11.1259), (-4.6062, -11.9168),
+        (-5.7545, -12.5230), (-6.8968, -12.7978), (-8.0334, -12.7416), (-9.1636, -12.3535),
+        (-10.2868, -11.6351), (-11.4034, -10.5866), (-12.5123, -9.2074), (-13.6150, -7.4984),
+        (-14.5767, -5.6241), (-15.2642, -3.7496), (-15.6766, -1.8749), (-15.8147, 0.0000),
+        (-15.6766, 1.8749), (-15.2642, 3.7496), (-14.5767, 5.6241), (-13.6150, 7.4984),
+        (-12.5123, 9.2074), (-11.4034, 10.5866), (-10.2868, 11.6351), (-9.1636, 12.3535),
+        (-8.0334, 12.7416), (-6.8968, 12.7978)
+    ]
+    
+    BOTTOM_GND_PTS = [
+        (13.0127, 20.0139), (13.0127, -20.0139), (10.4501, -19.7756), (8.2136, -19.3213),
+        (6.2898, -18.6506), (4.6777, -17.7615), (3.3787, -16.6557), (2.3919, -15.3324),
+        (1.7188, -13.7919), (1.3584, -12.0360), (0.8244, -7.1714), (0.4394, -3.7610),
+        (0.2663, -2.2921), (0.1263, 0.0000), (0.2663, 2.2921), (0.4394, 3.7610),
+        (0.8244, 7.1714), (1.3584, 12.0360), (1.7188, 13.7919), (2.3919, 15.3324),
+        (3.3787, 16.6557), (4.6777, 17.7615), (6.2898, 18.6506), (8.2136, 19.3213),
+        (10.4501, 19.7756), (13.0127, 20.0139)
+    ]
+
+    def __init__(self, cells_per_wavelength: float = 60.0):
+        super().__init__(
+            name="qorvo_wb002",
+            title="Qorvo WB002 UWB Planar Monopole MAN Reference Antenna (3 – 8 GHz)",
+            doc_reference="Qorvo / DecaWave WB002 Hardware Build Instruction v1.1",
+            f_center=5.50e9,
+            f_start=3.00e9,
+            f_stop=8.00e9,
+            f_wide_start=2.50e9,
+            f_wide_stop=8.50e9,
+            cells_per_wavelength=max(60.0, float(cells_per_wavelength))
+        )
+        self.sub_xmin = -18.0000
+        self.sub_xmax = 13.0127
+        self.sub_ymin = -20.0139
+        self.sub_ymax = 20.0139
+        self.sub_w = self.sub_xmax - self.sub_xmin  # 31.0127 mm
+        self.sub_l = self.sub_ymax - self.sub_ymin  # 40.0278 mm
+        self.sub_h = 0.8000                         # mm (0.8 mm FR4)
+        self.sub_eps_r = 4.30
+        self.sub_tan_d = 0.0200
+        self.sub_kappa = 2 * np.pi * self.f_center * EPS0 * self.sub_eps_r * self.sub_tan_d
+        
+        # 50-Ohm Feed Line
+        self.feed_xmin = -5.0127
+        self.feed_xmax = 13.0127
+        self.feed_w = 1.6254
+        self.feed_ymin = -self.feed_w / 2.0
+        self.feed_ymax = self.feed_w / 2.0
+
+    def get_proven_specs(self) -> dict:
+        return {
+            "source_doc": "Qorvo / DecaWave WB002 Hardware Build Instruction v1.1 (Figures 1–9 & Table 1)",
+            "operating_band": "3.0 – 8.0 GHz Ultra-Wideband (IEEE 802.15.4 Channels 1–7)",
+            "nominal_center_freq_ghz": 5.50,
+            "proven_s11_reflection_db": "< -10.0 dB from 3.4 to >10 GHz (Resonance at ~4.25 GHz with S11 < -40 dB)",
+            "proven_10db_bandwidth_mhz": "> 4500 MHz (3.4 – >8.0 GHz, > 80% fractional bandwidth)",
+            "proven_peak_gain_dbi": "2.2 dBi at 4.0 GHz, 3.3 dBi at 6.5 GHz (Omnidirectional)",
+            "proven_elevation_hpbw_deg": "Donut-shaped monopole elevation cut (Figure 3 & 4)",
+            "proven_azimuth_hpbw_deg": "Omnidirectional in Azimuth plane (Theta=90°)",
+            "fidelity_factor": "> 90% across 3 – 8 GHz in azimuth plane",
+            "group_delay_variation": "< ±100 ps across antenna rotation",
+            "antenna_dimensions": f"{self.sub_w:.1f} mm x {self.sub_l:.1f} mm x {self.sub_h:.1f} mm compact PCB",
+            "substrate_material": "Standard FR-4 (eps_r = 4.30, tan_d = 0.020, h = 0.80 mm / 31 mil)"
+        }
+
+    def create_simulation(self, end_criteria: float = 1e-4, nr_ts: int = 40000, active_channels=1):
+        """Construct CSXCAD model and openEMS FDTD configuration for WB002."""
+        FDTD = openEMS(NrTS=nr_ts, EndCriteria=end_criteria)
+        fc = 3.0e9  # 3.0 GHz pulse bandwidth around 5.5 GHz (covering 2.5 to 8.5 GHz)
+        FDTD.SetGaussExcite(self.f_center, fc)
+        FDTD.SetBoundaryCond(['PML_8', 'PML_8', 'PML_8', 'PML_8', 'PML_8', 'PML_8'])
+        
+        CSX = ContinuousStructure()
+        FDTD.SetCSX(CSX)
+        mesh = CSX.GetGrid()
+        mesh.SetDeltaUnit(self.unit)
+        
+        # 1. Materials
+        fr4 = CSX.AddMaterial('FR4', epsilon=self.sub_eps_r, kappa=self.sub_kappa)
+        copper = CSX.AddMetal('Copper')
+        
+        # 2. Substrate
+        fr4.AddBox([self.sub_xmin, self.sub_ymin, 0.0],
+                   [self.sub_xmax, self.sub_ymax, self.sub_h], priority=1)
+                   
+        # 3. Bottom Layer: Ground Plane with curved taper
+        gnd_x = [pt[0] for pt in self.BOTTOM_GND_PTS]
+        gnd_y = [pt[1] for pt in self.BOTTOM_GND_PTS]
+        copper.AddLinPoly(np.array([gnd_x, gnd_y]), 'z', 0.0, 0.0, priority=10)
+        
+        # 4. Top Layer: 50-Ohm Feed Line Box
+        copper.AddBox([self.feed_xmin, self.feed_ymin, self.sub_h],
+                      [self.feed_xmax, self.feed_ymax, self.sub_h], priority=10)
+                      
+        # 5. Top Layer: MAN Radiator Polygon
+        rad_x = [pt[0] for pt in self.TOP_RADIATOR_PTS]
+        rad_y = [pt[1] for pt in self.TOP_RADIATOR_PTS]
+        copper.AddLinPoly(np.array([rad_x, rad_y]), 'z', self.sub_h, 0.0, priority=10)
+        
+        # 6. Lumped 50-Ohm Port at board edge (x = 13.0127)
+        port_start = [self.feed_xmax - 0.4, self.feed_ymin, 0.0]
+        port_stop = [self.feed_xmax, self.feed_ymax, self.sub_h]
+        port = FDTD.AddLumpedPort(1, 50.0, port_start, port_stop, 'z', 1.0, priority=20, edges2grid='xy')
+        
+        # 7. Mesh Definition (guaranteeing >= 60 cells/lambda everywhere)
+        res = min(self.lambda0_mm / self.cells_per_wavelength, 0.50)  # <= 0.50 mm
+        air_pad = self.lambda0_mm * 0.45
+        
+        # Z lines (exact mesh lines at z=0.0 and z=0.8)
+        nz_sub = 4
+        z_sub = np.linspace(0.0, self.sub_h, nz_sub + 1)
+        z_raw = np.concatenate([[-air_pad], z_sub, [self.sub_h + air_pad]])
+        z_lines = self._smooth_mesh(z_raw, res, ratio=1.30)
+        
+        # X lines
+        x_features = [
+            self.sub_xmin - air_pad, self.sub_xmin, -15.8147, -6.8968, -5.0127,
+            0.0, 0.1263, 0.8244, 10.4501, self.sub_xmax, self.sub_xmax + air_pad
+        ]
+        x_lines = self._smooth_mesh(np.array(x_features), res, ratio=1.30)
+        
+        # Y lines
+        y_features = [
+            self.sub_ymin - air_pad, self.sub_ymin, -12.7978, -4.4144,
+            self.feed_ymin, 0.0, self.feed_ymax, 4.4144, 12.7978,
+            self.sub_ymax, self.sub_ymax + air_pad
+        ]
+        y_lines = self._smooth_mesh(np.array(y_features), res, ratio=1.30)
+        
+        mesh.AddLine('x', x_lines)
+        mesh.AddLine('y', y_lines)
+        mesh.AddLine('z', z_lines)
+        
+        # 8. NF2FF
+        nf2ff = FDTD.CreateNF2FFBox()
+        return FDTD, CSX, [port], nf2ff
+
+    def draw_layout(self, output_path: str):
+        """Generate high-resolution 2D engineering layout diagram."""
+        fig, (ax_plan, ax_side) = plt.subplots(1, 2, figsize=(15, 7),
+                                               gridspec_kw={'width_ratios': [1.3, 0.9]},
+                                               tight_layout=True)
+        # Plan view
+        sub_rect = mpatches.Rectangle((self.sub_xmin, self.sub_ymin), self.sub_w, self.sub_l,
+                                     facecolor='#e2e8f0', edgecolor='#64748b', linewidth=1.5,
+                                     label=f'FR-4 Substrate ({self.sub_w:.1f}x{self.sub_l:.1f} mm, h=0.8mm)')
+        ax_plan.add_patch(sub_rect)
+        
+        # Bottom Ground Plane
+        gnd_poly = mpatches.Polygon(self.BOTTOM_GND_PTS, facecolor='#b45309', edgecolor='#78350f',
+                                    alpha=0.45, linewidth=1.2, label='Bottom Ground Plane (with curved taper)')
+        ax_plan.add_patch(gnd_poly)
+        
+        # Top Feed Line
+        feed_rect = mpatches.Rectangle((self.feed_xmin, self.feed_ymin), self.feed_xmax - self.feed_xmin, self.feed_w,
+                                      facecolor='#ea580c', edgecolor='#9a3412', linewidth=1.0,
+                                      label=f'Top 50-Ohm Feed Line (W={self.feed_w:.2f} mm)')
+        ax_plan.add_patch(feed_rect)
+        
+        # Top MAN Radiator
+        rad_poly = mpatches.Polygon(self.TOP_RADIATOR_PTS, facecolor='#dc2626', edgecolor='#991b1b',
+                                    alpha=0.90, linewidth=1.2, label='Top MAN Radiator (3 – 8 GHz)')
+        ax_plan.add_patch(rad_poly)
+        
+        # Annotations
+        ax_plan.annotate(f'Board Width = {self.sub_w:.1f} mm', xy=((self.sub_xmin + self.sub_xmax)/2, self.sub_ymax + 1.2),
+                         ha='center', va='bottom', fontsize=9.5, fontweight='bold', color='#1e293b')
+        ax_plan.annotate(f'Board Length = {self.sub_l:.1f} mm', xy=(self.sub_xmin - 1.2, 0),
+                         ha='right', va='center', fontsize=9.5, fontweight='bold', color='#1e293b', rotation=90)
+        ax_plan.annotate('Port 1 (50-Ohm Feed)', xy=(self.sub_xmax, 0),
+                         xytext=(self.sub_xmax + 2.5, 0),
+                         arrowprops=dict(facecolor='#ea580c', shrink=0.08, width=1.5, headwidth=6),
+                         ha='left', va='center', fontsize=9, fontweight='bold', color='#c2410c')
+        ax_plan.annotate('Curved Ground Taper', xy=(0.126, 0.0),
+                         xytext=(4.0, -8.0),
+                         arrowprops=dict(facecolor='#b45309', shrink=0.08, width=1.0, headwidth=5),
+                         fontsize=8.5, color='#b45309')
+                         
+        ax_plan.set_xlim(self.sub_xmin - 4.0, self.sub_xmax + 12.0)
+        ax_plan.set_ylim(self.sub_ymin - 3.0, self.sub_ymax + 3.0)
+        ax_plan.set_aspect('equal')
+        ax_plan.set_title(f"{self.title}\n(Exact Gerber Layout from {self.doc_reference})", fontsize=11, fontweight='bold')
+        ax_plan.set_xlabel('X Dimension (mm)')
+        ax_plan.set_ylabel('Y Dimension (mm)')
+        ax_plan.legend(loc='lower left', fontsize=8.5)
+        ax_plan.grid(True, linestyle=':', alpha=0.5)
+        
+        # Side view (Stackup)
+        ax_side.set_title("PCB Stackup Cross-Section (XZ)", fontsize=11, fontweight='bold')
+        ax_side.add_patch(mpatches.Rectangle((self.sub_xmin, 0.0), self.sub_w, self.sub_h,
+                                            facecolor='#e2e8f0', edgecolor='#64748b', linewidth=1.2,
+                                            label=f'FR-4 Core ({self.sub_h*1000:.0f} um / 31 mil, eps_r=4.30)'))
+        ax_side.plot([self.BOTTOM_GND_PTS[13][0], self.sub_xmax], [0.0, 0.0],
+                     color='#b45309', linewidth=3.0, label='Bottom Cu Ground (35 um)')
+        ax_side.plot([self.feed_xmin, self.feed_xmax], [self.sub_h, self.sub_h],
+                     color='#ea580c', linewidth=2.5, label='Top Cu 50-Ohm Feed (35 um)')
+        ax_side.plot([min(p[0] for p in self.TOP_RADIATOR_PTS), max(p[0] for p in self.TOP_RADIATOR_PTS)],
+                     [self.sub_h, self.sub_h], color='#dc2626', linewidth=3.0, label='Top Cu MAN Radiator (35 um)')
+                     
+        ax_side.plot([self.feed_xmax, self.feed_xmax], [0.0, self.sub_h], color='#c2410c', linewidth=2.5, linestyle='--')
+        ax_side.annotate('50-Ohm SMA Port', xy=(self.feed_xmax, self.sub_h / 2.0),
+                         xytext=(self.feed_xmax + 2.0, self.sub_h / 2.0),
+                         ha='left', va='center', fontsize=8.5, fontweight='bold', color='#c2410c')
+                         
+        ax_side.set_xlim(self.sub_xmin - 3.0, self.sub_xmax + 10.0)
+        ax_side.set_ylim(-1.5, 3.5)
+        ax_side.set_xlabel('X Dimension (mm)')
+        ax_side.set_ylabel('Z Dimension (mm)')
+        ax_side.legend(loc='upper left', fontsize=8.5)
+        ax_side.grid(True, linestyle=':', alpha=0.5)
+        
+        fig.savefig(output_path, dpi=300)
+        plt.close(fig)
+
+    def draw_3d_view(self, output_path: str):
+        """Generate publication-ready 3D isometric perspective diagram."""
+        fig = plt.figure(figsize=(11, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Substrate
+        z_top = self.sub_h
+        xx, yy = np.meshgrid([self.sub_xmin, self.sub_xmax], [self.sub_ymin, self.sub_ymax])
+        ax.plot_surface(xx, yy, np.full_like(xx, z_top), color='#94a3b8', alpha=0.30)
+        ax.plot_surface(xx, yy, np.zeros_like(xx), color='#94a3b8', alpha=0.15)
+        
+        # Bottom Ground Plane polygon
+        gnd_3d = [[(pt[0], pt[1], 0.0) for pt in self.BOTTOM_GND_PTS]]
+        ax.add_collection3d(Poly3DCollection(gnd_3d, facecolors='#b45309', edgecolors='#78350f', alpha=0.7, linewidth=0.8))
+        
+        # Top Feed Line Box
+        feed_3d = [[
+            (self.feed_xmin, self.feed_ymin, z_top + 0.02),
+            (self.feed_xmax, self.feed_ymin, z_top + 0.02),
+            (self.feed_xmax, self.feed_ymax, z_top + 0.02),
+            (self.feed_xmin, self.feed_ymax, z_top + 0.02)
+        ]]
+        ax.add_collection3d(Poly3DCollection(feed_3d, facecolors='#ea580c', edgecolors='#9a3412', alpha=0.9, linewidth=0.8))
+        
+        # Top Radiator polygon
+        rad_3d = [[(pt[0], pt[1], z_top + 0.02) for pt in self.TOP_RADIATOR_PTS]]
+        ax.add_collection3d(Poly3DCollection(rad_3d, facecolors='#dc2626', edgecolors='#991b1b', alpha=0.9, linewidth=0.8))
+        
+        # Port marker
+        ax.plot([self.feed_xmax, self.feed_xmax], [0, 0], [0, z_top], color='#ea580c', linewidth=3)
+        ax.text(self.feed_xmax + 1.0, 0, z_top / 2.0, 'P1', color='#ea580c', fontweight='bold', fontsize=9)
+        
+        ax.set_xlim(self.sub_xmin - 3, self.sub_xmax + 3)
+        ax.set_ylim(self.sub_ymin - 3, self.sub_ymax + 3)
+        ax.set_zlim(-1.5, 3.5)
+        ax.set_title(f"{self.title}\n3D Isometric Structural Model", fontsize=11, fontweight='bold', pad=15)
+        ax.set_xlabel('X (mm)')
+        ax.set_ylabel('Y (mm)')
+        ax.set_zlabel('Z (mm)')
+        ax.view_init(elev=28, azim=-55)
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=300)
+        plt.close(fig)
+
+    def draw_interactive_3d(self, output_path: str):
+        """Generate interactive 3D WebGL Three.js HTML model with dark-theme HUD."""
+        rad_js = ", ".join([f"[{pt[0]:.4f}, {pt[1]:.4f}]" for pt in self.TOP_RADIATOR_PTS])
+        gnd_js = ", ".join([f"[{pt[0]:.4f}, {pt[1]:.4f}]" for pt in self.BOTTOM_GND_PTS])
+        specs = self.get_proven_specs()
+        
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{self.title}</title>
+    <style>
+        body {{ margin: 0; overflow: hidden; background: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #f8fafc; }}
+        #hud {{ position: absolute; top: 16px; left: 16px; background: rgba(15, 23, 42, 0.88); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 16px 20px; max-width: 380px; backdrop-filter: blur(8px); box-shadow: 0 4px 20px rgba(0,0,0,0.5); }}
+        h1 {{ margin: 0 0 6px 0; font-size: 15px; font-weight: 600; color: #38bdf8; }}
+        .badge {{ display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; background: #3b82f6; color: #fff; margin-bottom: 8px; }}
+        p {{ margin: 4px 0; font-size: 12px; color: #cbd5e1; }}
+        .metric {{ font-weight: 600; color: #f8fafc; }}
+        .controls {{ margin-top: 10px; font-size: 11px; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px; }}
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div id="hud">
+        <div class="badge">UWB Monopole Reference</div>
+        <h1>{self.title}</h1>
+        <p>Reference: <span class="metric">Qorvo / DecaWave WB002 Build Instruction</span></p>
+        <p>Operational Band: <span class="metric">3.0 – 8.0 GHz (IEEE 802.15.4 UWB)</span></p>
+        <p>Dimensions: <span class="metric">{self.sub_w:.1f} x {self.sub_l:.1f} x {self.sub_h:.1f} mm</span></p>
+        <p>Substrate: <span class="metric">FR-4 (eps_r = 4.30, h = 0.8 mm)</span></p>
+        <p>Peak Gain: <span class="metric">2.2 dBi @ 4.0 GHz, 3.3 dBi @ 6.5 GHz</span></p>
+        <p>Radiation Pattern: <span class="metric">Omnidirectional (Azimuth plane)</span></p>
+        <p>Group Delay Var: <span class="metric">&lt; ±100 ps across rotation</span></p>
+        <div class="controls">
+            Left Click + Drag: Rotate | Right Click + Drag: Pan | Scroll: Zoom
+        </div>
+    </div>
+
+    <script>
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0f172a);
+        
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, -60, 45);
+        
+        const renderer = new THREE.WebGLRenderer({{ antialias: true }});
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+        
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        
+        // Lighting
+        const ambLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambLight);
+        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight1.position.set(30, -40, 50);
+        scene.add(dirLight1);
+        const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.4);
+        dirLight2.position.set(-30, 40, -30);
+        scene.add(dirLight2);
+        
+        const subW = {self.sub_w:.4f};
+        const subL = {self.sub_l:.4f};
+        const subH = {self.sub_h:.4f};
+        const subX0 = {self.sub_xmin:.4f};
+        const subY0 = {self.sub_ymin:.4f};
+        
+        // Substrate Box
+        const subGeo = new THREE.BoxGeometry(subW, subL, subH);
+        const subMat = new THREE.MeshStandardMaterial({{ color: 0x64748b, transparent: true, opacity: 0.35 }});
+        const sub = new THREE.Mesh(subGeo, subMat);
+        sub.position.set(subX0 + subW / 2.0, subY0 + subL / 2.0, subH / 2.0);
+        scene.add(sub);
+        
+        // Materials
+        const gndMat = new THREE.MeshStandardMaterial({{ color: 0xb45309, metalness: 0.85, roughness: 0.25, side: THREE.DoubleSide }});
+        const feedMat = new THREE.MeshStandardMaterial({{ color: 0xea580c, metalness: 0.90, roughness: 0.20 }});
+        const radMat = new THREE.MeshStandardMaterial({{ color: 0xdc2626, metalness: 0.90, roughness: 0.20, side: THREE.DoubleSide }});
+        
+        // Bottom Ground Shape
+        const gndPts = [{gnd_js}];
+        const gndShape = new THREE.Shape();
+        gndShape.moveTo(gndPts[0][0], gndPts[0][1]);
+        for (let i = 1; i < gndPts.length; i++) {{
+            gndShape.lineTo(gndPts[i][0], gndPts[i][1]);
+        }}
+        const gndGeo = new THREE.ShapeGeometry(gndShape);
+        const gndMesh = new THREE.Mesh(gndGeo, gndMat);
+        gndMesh.position.set(0, 0, -0.01);
+        scene.add(gndMesh);
+        
+        // Top 50-Ohm Feed Line Box
+        const feedLen = {self.feed_xmax - self.feed_xmin:.4f};
+        const feedW = {self.feed_w:.4f};
+        const feedGeo = new THREE.BoxGeometry(feedLen, feedW, 0.035);
+        const feedMesh = new THREE.Mesh(feedGeo, feedMat);
+        feedMesh.position.set({(self.feed_xmin + self.feed_xmax)/2.0:.4f}, 0, subH + 0.0175);
+        scene.add(feedMesh);
+        
+        // Top MAN Radiator Shape
+        const radPts = [{rad_js}];
+        const radShape = new THREE.Shape();
+        radShape.moveTo(radPts[0][0], radPts[0][1]);
+        for (let i = 1; i < radPts.length; i++) {{
+            radShape.lineTo(radPts[i][0], radPts[i][1]);
+        }}
+        const radGeo = new THREE.ShapeGeometry(radShape);
+        const radMesh = new THREE.Mesh(radGeo, radMat);
+        radMesh.position.set(0, 0, subH + 0.01);
+        scene.add(radMesh);
+        
+        function animate() {{
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }}
+        animate();
+        
+        window.addEventListener('resize', () => {{
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }});
+    </script>
+</body>
+</html>
+"""
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+
+# ==============================================================================
 # Model Catalog & Factory
 # ==============================================================================
 
 SUPPORTED_ANTENNAS = {
     'ti_77ghz_rx': TI77GHzRXAntenna,
     'ti_24ghz_an043': TI24GHzAN043Antenna,
-    'ti_24ghz_swru120d': TI24GHzSWRU120DAntenna
+    'ti_24ghz_swru120d': TI24GHzSWRU120DAntenna,
+    'mdpi_24ghz_array': lambda **kwargs: MDPI24GHzPatchArrayAntenna(with_plates=False, **kwargs),
+    'mdpi_24ghz_plates': lambda **kwargs: MDPI24GHzPatchArrayAntenna(with_plates=True, **kwargs),
+    'qorvo_wb002': QorvoWB002Antenna,
 }
 
 def get_antenna_model(antenna_name: str = 'ti_77ghz_rx', **kwargs) -> BaseAntennaModel:
@@ -1404,7 +2372,13 @@ def get_antenna_model(antenna_name: str = 'ti_77ghz_rx', **kwargs) -> BaseAntenn
         return SUPPORTED_ANTENNAS[name_clean](**kwargs)
     
     # Aliases
-    if '77' in name_clean or 'swru553' in name_clean:
+    if 'wb002' in name_clean or 'man' in name_clean or 'qorvo' in name_clean or 'decawave' in name_clean:
+        return QorvoWB002Antenna(**kwargs)
+    elif 'plates' in name_clean:
+        return MDPI24GHzPatchArrayAntenna(with_plates=True, **kwargs)
+    elif '1512' in name_clean or 'mdpi' in name_clean:
+        return MDPI24GHzPatchArrayAntenna(with_plates=False, **kwargs)
+    elif '77' in name_clean or 'swru553' in name_clean:
         return TI77GHzRXAntenna(**kwargs)
     elif 'an043' in name_clean or 'mifa' in name_clean:
         return TI24GHzAN043Antenna(**kwargs)
@@ -1412,3 +2386,5 @@ def get_antenna_model(antenna_name: str = 'ti_77ghz_rx', **kwargs) -> BaseAntenn
         return TI24GHzSWRU120DAntenna(**kwargs)
     else:
         raise ValueError(f"Unknown antenna '{antenna_name}'. Supported antennas: {list(SUPPORTED_ANTENNAS.keys())}")
+
+

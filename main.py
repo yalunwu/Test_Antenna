@@ -2,11 +2,14 @@
 Main Entry Point for Proven RF Antenna Simulations using openEMS FDTD.
 Compatible with PyCharm, CLI, and interactive runs.
 
-Supported Proven TI Antennas:
+Supported Proven TI & Qorvo/Decawave Antennas:
   - 'ti_77ghz_rx'      : TI 77 GHz RX Series-Fed Patch Array (SWRU553A Section 2.6.2)
   - 'ti_24ghz_an043'    : TI 2.4 GHz Small Size MIFA (AN043 / SWRA117D Table 1)
   - 'ti_24ghz_swru120d' : TI 2.4 GHz Inverted-F Antenna (SWRU120D / DN0007 Table 1-1)
-  - 'all'               : Run simulation suite across all 3 proven antennas sequentially
+  - 'mdpi_24ghz_array'  : 24 GHz 1x4 Series-Fed Patch Array (MDPI Electronics 2023, 12, 1512)
+  - 'mdpi_24ghz_plates' : 24 GHz 1x4 Patch Array with Parasitic Metal Plates (MDPI 2023)
+  - 'qorvo_wb002'       : Qorvo/Decawave WB002 UWB 3.0-8.0 GHz Planar Monopole MAN Reference Antenna
+  - 'all'               : Run simulation suite across all antennas sequentially
 """
 import argparse
 import sys
@@ -23,14 +26,14 @@ from simulate import run_simulation, post_process_directory
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Proven TI RF Antenna openEMS FDTD Electromagnetic Simulation Suite",
+        description="Proven TI & Qorvo RF Antenna openEMS FDTD Electromagnetic Simulation Suite",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
         '--antenna',
-        choices=['ti_77ghz_rx', 'ti_24ghz_an043', 'ti_24ghz_swru120d', 'all'],
+        choices=['ti_77ghz_rx', 'ti_24ghz_an043', 'ti_24ghz_swru120d', 'mdpi_24ghz_array', 'mdpi_24ghz_plates', 'qorvo_wb002', 'all'],
         default='ti_77ghz_rx',
-        help="Antenna model to simulate: 'ti_77ghz_rx' (77 GHz radar RX), 'ti_24ghz_an043' (2.4 GHz MIFA), 'ti_24ghz_swru120d' (2.4 GHz IFA), or 'all'"
+        help="Antenna model to simulate: 'ti_77ghz_rx', 'ti_24ghz_an043', 'ti_24ghz_swru120d', 'mdpi_24ghz_array', 'mdpi_24ghz_plates', 'qorvo_wb002', or 'all'"
     )
     parser.add_argument(
         '--engine',
@@ -110,7 +113,7 @@ def main():
         output_dirs = [target_dir]
     else:
         if args.antenna == 'all':
-            antennas_to_run = ['ti_77ghz_rx', 'ti_24ghz_an043', 'ti_24ghz_swru120d']
+            antennas_to_run = ['ti_77ghz_rx', 'ti_24ghz_an043', 'ti_24ghz_swru120d', 'mdpi_24ghz_array', 'mdpi_24ghz_plates', 'qorvo_wb002']
         else:
             antennas_to_run = [args.antenna]
             
