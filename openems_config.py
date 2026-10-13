@@ -3,31 +3,36 @@ openEMS and CSXCAD Environment Configuration
 Handles dynamic loading of Windows DLLs, path configuration, and helper utilities.
 """
 import os
-import sys
 import pathlib
 import warnings
 
 # Suppress known benign HDF5 runtime version warning (HDF5 2.2.0 vs 2.0.0)
-warnings.filterwarnings("ignore", category=UserWarning, module="h5py")
+warnings.filterwarnings(
+    "ignore",
+    message=r"h5py is running against HDF5 2\.2\.0 when it was built against 2\.0\.0.*",
+    category=UserWarning,
+    module="h5py",
+)
 
 # Determine openEMS installation directory
 _PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
 _OPENEMS_DIR = _PROJECT_ROOT / "openEMS"
 
-if not _OPENEMS_DIR.exists():
-    # Fallback to local user path
-    _OPENEMS_DIR = pathlib.Path(r"c:\Users\Allen\Documents\Test_Antenna\openEMS")
+if not _OPENEMS_DIR.is_dir():
+    raise FileNotFoundError(
+        f"Bundled openEMS directory not found: {_OPENEMS_DIR}. "
+        "Extract the complete openEMS build into the project root."
+    )
 
 # Configure environment variables required by openEMS and CSXCAD
 os.environ["CSXCAD_INSTALL_PATH"] = str(_OPENEMS_DIR)
 os.environ["OPENEMS_INSTALL_PATH"] = str(_OPENEMS_DIR)
 
 # Add openEMS folder to DLL search path on Windows
-if hasattr(os, "add_dll_directory") and _OPENEMS_DIR.exists():
-    try:
-        os.add_dll_directory(str(_OPENEMS_DIR))
-    except Exception:
-        pass
+# Keep the handle alive: closing it removes this directory from the DLL search path.
+_DLL_DIRECTORY_HANDLE = None
+if hasattr(os, "add_dll_directory"):
+    _DLL_DIRECTORY_HANDLE = os.add_dll_directory(str(_OPENEMS_DIR))
 
 # Also prepend to system PATH for any sub-processes
 os.environ["PATH"] = str(_OPENEMS_DIR) + os.pathsep + os.environ.get("PATH", "")

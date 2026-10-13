@@ -1,4 +1,4 @@
-# 77 GHz 3-Element Patch Antenna Simulation Dependencies
+# 77 GHz 4-Channel Patch Antenna Array Simulation Dependencies
 # Python 3.13 / 3.14 on Windows x64
 
 # Scientific computing and visualization
@@ -6,8 +6,9 @@ numpy>=2.0.0
 matplotlib>=3.9.0
 h5py>=3.10.0
 
-# OpenEMS and CSXCAD Python bindings:
-# These packages are pre-compiled and bundled inside the project repository.
-# To install in a virtual environment:
-#   pip install openEMS/python/csxcad-0.7.0rc3.post1.dev7+g65e759115-cp313-cp313-win_amd64.whl
-#   pip install openEMS/python/openems-0.37.0rc1.post1.dev47+gc849f07be-cp313-cp313-win_amd64.whl
+# Bindings matching the bundled Vulkan-Test-22-g466323b-dirty native build with public fused PML selection.
+# Run pip from the project root after extracting openEMS/.
+./openEMS/python/csxcad-0.7.0rc3.post1.dev7+g65e759115-cp313-cp313-win_amd64.whl ; sys_platform == "win32" and python_version == "3.13"
+./openEMS/python/openems-0.37.0rc1.post1.dev52+g466323bd1.d20261013-cp313-cp313-win_amd64.whl ; sys_platform == "win32" and python_version == "3.13"
+./openEMS/python/csxcad-0.7.0rc3.post1.dev7+g65e759115-cp314-cp314-win_amd64.whl ; sys_platform == "win32" and python_version == "3.14"
+./openEMS/python/openems-0.37.0rc1.post1.dev52+g466323bd1.d20261013-cp314-cp314-win_amd64.whl ; sys_platform == "win32" and python_version == "3.14"
