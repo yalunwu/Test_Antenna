@@ -12,6 +12,9 @@ import json
 import pathlib
 import datetime
 import subprocess
+import hashlib
+import re
+import xml.etree.ElementTree as ET
 import numpy as np
 
 import matplotlib
@@ -22,6 +25,7 @@ import matplotlib.pyplot as plt
 import openems_config
 import antenna_model
 from antenna_model import BaseAntennaModel
+from solver_xml import write_solver_xml, critical_property_names
 
 class TeeLogger:
     """Duplicate stdout streams to both the terminal and a log file."""
@@ -75,6 +79,7 @@ def run_openems_solver(output_dir: pathlib.Path,
     
     if not openems_exe.exists():
         return -1
+    critical_names = critical_property_names(xml_path)
         
     cmd = [str(openems_exe), str(xml_path)]
     if engine:
@@ -105,9 +110,64 @@ def run_openems_solver(output_dir: pathlib.Path,
             sys.stdout.flush()
             log_file.write(line)
             log_file.flush()
+            if unused_critical_property(line, critical_names):
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                raise RuntimeError(
+                    'A source or metal primitive is absent from the solver grid. Simulation stopped; '
+                    f'no RF report was generated. See {log_path}'
+                )
         proc.wait()
         
     return proc.returncode
+
+
+def unused_critical_property(line, critical_names):
+    if 'Unused primitive' in line:
+        match = re.search(r'property:\s*(.*?)!', line)
+        return match is not None and match.group(1) in critical_names
+    return False
+
+
+def validate_saved_solver_log(output_dir):
+    xml, log = output_dir / 'openEMS_model.xml', output_dir / 'openEMS.log'
+    if xml.exists() and log.exists():
+        critical_names = critical_property_names(xml)
+        if any(unused_critical_property(line, critical_names)
+               for line in log.read_text(encoding='utf-8', errors='replace').splitlines()):
+            raise ValueError('Saved run contains unused source/metal primitives. Run a new simulation; '
+                             'existing results were preserved.')
+
+
+def validate_port_signals(output_dir, ports, channel, frequency):
+    """Reject empty or invalid driven-port recordings before generating reports."""
+    if str(channel).strip().lower() in ('all', 'array'):
+        active_ports = ports
+    else:
+        try:
+            index = int(channel) - 1
+        except (TypeError, ValueError):
+            index = 0
+        active_ports = [ports[index if 0 <= index < len(ports) else 0]]
+    for port in active_ports:
+        port.ReadUIData(str(output_dir), [frequency])
+        signals = (np.asarray(port.ut_tot), np.asarray(port.it_tot))
+        if any(signal.size < 2 or not np.all(np.isfinite(signal)) for signal in signals):
+            raise ValueError(f'Port {port.number} has invalid recorded signals; RF results are unavailable.')
+        if all(np.max(np.abs(signal)) == 0 for signal in signals):
+            raise ValueError(
+                f'Port {port.number} recorded zero voltage and current. The source did not inject power; '
+                'run a new simulation with the corrected model. No RF report was generated.'
+            )
+
+
+def validate_incident_wave(port):
+    if not np.all(np.isfinite(port.uf_inc)) or np.any(np.abs(port.uf_inc) == 0):
+        raise ValueError(f'Port {port.number} has no valid incident wave over the requested frequencies.')
 
 def calculate_hpbw(theta_deg: np.ndarray, directivity_linear: np.ndarray) -> float:
     """Calculate Half-Power Beamwidth (HPBW) in degrees."""
@@ -143,12 +203,37 @@ def post_process_directory(output_dir: pathlib.Path,
                            start_dt: datetime.datetime = None,
                            engine: str = 'vulkan',
                            channel: str = '1',
-                           max_timesteps: int = 40000) -> None:
+                           max_timesteps: int = 500000) -> None:
     """Perform full post-processing, figure plotting, data export, and report generation."""
     if antenna is None:
         antenna = antenna_model.get_antenna_model('ti_77ghz_rx')
     if start_dt is None:
         start_dt = datetime.datetime.now()
+
+    # Geometry updates must not relabel old field recordings as a new model.
+    existing_summary = output_dir / 'simulation_summary.json'
+    if existing_summary.exists():
+        previous = json.loads(existing_summary.read_text(encoding='utf-8')).get('antenna_model', {})
+        recorded_revision = previous.get('geometry_revision', 'legacy-v1')
+        current_revision = getattr(antenna, 'geometry_revision', 'legacy-v1')
+        if recorded_revision != current_revision:
+            raise ValueError(
+                f'Saved run uses geometry {recorded_revision}, but the current model uses {current_revision}. '
+                'Run a new simulation for the corrected geometry; existing results were preserved.'
+            )
+
+    # Check actual recordings before writing previews, plots or summary files.
+    validate_saved_solver_log(output_dir)
+    end_criteria = 1e-6
+    xml_path = output_dir / 'openEMS_model.xml'
+    if xml_path.exists():
+        saved_fdtd = ET.parse(xml_path).find('FDTD')
+        end_criteria = float(saved_fdtd.get('endCriteria'))
+        max_timesteps = int(saved_fdtd.get('NumberOfTimesteps'))
+    fdtd, csx, ports, nf2ff = antenna.create_simulation(end_criteria=end_criteria, nr_ts=max_timesteps, active_channels=channel)
+    if not isinstance(ports, list):
+        ports = [ports]
+    validate_port_signals(output_dir, ports, channel, antenna.f_center)
         
     sim_log_path = output_dir / "simulation.log"
     logger = None
@@ -175,13 +260,9 @@ def post_process_directory(output_dir: pathlib.Path,
     print(f"Reference Doc:       {antenna.doc_reference}")
     print(f"Excitation Mode:     {mode_str}")
     print(f"Max Timesteps:       {max_timesteps}")
+    print(f"Energy Decay Target: {10 * np.log10(end_criteria):.0f} dB")
     print("=" * 75)
     
-    # Re-create ports and nf2ff wrappers
-    fdtd, csx, ports, nf2ff = antenna.create_simulation(end_criteria=1e-4, nr_ts=max_timesteps, active_channels=channel)
-    if not isinstance(ports, list):
-        ports = [ports]
-        
     # Generate presentation files
     print("\nGenerating presentation visual diagrams and interactive 3D HTML model...")
     antenna.draw_layout(str(output_dir / "antenna_layout.png"))
@@ -202,10 +283,12 @@ def post_process_directory(output_dir: pathlib.Path,
     if not is_all_channels:
         port_active = ports[ch_active - 1]
         port_active.CalcPort(str(output_dir), f_wide)
+        validate_incident_wave(port_active)
         s11_wide = port_active.uf_ref / port_active.uf_inc
         s11_wide_db = 20.0 * np.log10(np.abs(s11_wide))
         
         port_active.CalcPort(str(output_dir), f_band)
+        validate_incident_wave(port_active)
         s11_band = port_active.uf_ref / port_active.uf_inc
         s11_band_db = 20.0 * np.log10(np.abs(s11_band))
         zin_band = port_active.uf_tot / port_active.if_tot
@@ -223,10 +306,12 @@ def post_process_directory(output_dir: pathlib.Path,
         for ch_idx in range(len(ports)):
             p = ports[ch_idx]
             p.CalcPort(str(output_dir), f_wide)
+            validate_incident_wave(p)
             s_w = p.uf_ref / p.uf_inc
             s_active_all_wide_db[f'Port {ch_idx+1}'] = 20.0 * np.log10(np.abs(s_w))
             
             p.CalcPort(str(output_dir), f_band)
+            validate_incident_wave(p)
             s_b = p.uf_ref / p.uf_inc
             s_active_all_band_db[f'Port {ch_idx+1}'] = 20.0 * np.log10(np.abs(s_b))
             zin_all[f'Port {ch_idx+1}'] = p.uf_tot / p.if_tot
@@ -458,6 +543,12 @@ def post_process_directory(output_dir: pathlib.Path,
             "title": antenna.title,
             "reference_document": antenna.doc_reference,
             "num_channels": antenna.num_channels,
+            "geometry_revision": getattr(antenna, 'geometry_revision', 'legacy-v1'),
+            "geometry_source_sha256": getattr(antenna, 'reference_outline', {}).get('source_sha256'),
+            "geometry_xml_sha256": hashlib.sha256((output_dir / 'openEMS_model.xml').read_bytes()).hexdigest()
+                if (output_dir / 'openEMS_model.xml').exists() else None,
+            "rf_ground_depth_mm": getattr(antenna, 'rf_ground_depth', None),
+            "cells_per_wavelength": antenna.cells_per_wavelength,
             "operating_band": f"{antenna.f_start/1e9:.3f} - {antenna.f_stop/1e9:.3f} GHz",
             "center_frequency_ghz": round(antenna.f_center / 1e9, 3)
         },
@@ -467,7 +558,9 @@ def post_process_directory(output_dir: pathlib.Path,
             "elapsed_seconds": round(sim_duration, 2),
             "output_directory": str(output_dir),
             "engine": engine,
-            "max_timesteps": max_timesteps
+            "max_timesteps": max_timesteps,
+            "end_criteria": end_criteria,
+            "energy_decay_target_db": float(10 * np.log10(end_criteria))
         },
         "simulated_rf_metrics": {
             "resonant_frequency_ghz": round(f_res_ghz, 3),
@@ -497,6 +590,7 @@ def post_process_directory(output_dir: pathlib.Path,
         f.write(f"OPENEMS FDTD ELECTROMAGNETIC SIMULATION REPORT\n")
         f.write(f"Antenna: {antenna.title}\n")
         f.write(f"Reference Document: {antenna.doc_reference}\n")
+        f.write(f"Energy Decay Target: {10 * np.log10(end_criteria):.0f} dB\n")
         f.write("=" * 80 + "\n\n")
         
         f.write("1. EXECUTIVE SUMMARY & BENCHMARK COMPARISON\n")
@@ -549,7 +643,7 @@ def run_simulation(antenna_type: str = 'ti_77ghz_rx',
                    vulkan_pml: str = 'fused',
                    cells_per_wavelength: float = 60.0,
                    channel: str = '1',
-                   max_timesteps: int = 40000) -> pathlib.Path:
+                   max_timesteps: int = 500000) -> pathlib.Path:
     """Execute full FDTD simulation pipeline for the specified proven antenna."""
     start_dt = datetime.datetime.now()
     timestamp_str = start_dt.strftime("%Y-%m-%d_%H-%M-%S")
@@ -575,6 +669,7 @@ def run_simulation(antenna_type: str = 'ti_77ghz_rx',
         print(f"Solver Engine:        {engine}")
         print(f"Mesh Resolution:      {antenna.cells_per_wavelength:.1f} cells/lambda_0 (min >= 60)")
         print(f"Max Timesteps:        {max_timesteps}")
+        print("Energy Decay Target:  -60 dB")
         print("=" * 75)
         
         # 1. Generate presentation models
@@ -586,10 +681,10 @@ def run_simulation(antenna_type: str = 'ti_77ghz_rx',
         
         # 2. Build CSXCAD geometry and openEMS FDTD solver
         print("\n[Step 2/4] Building CSXCAD geometry and FDTD mesh...")
-        fdtd, csx, ports, nf2ff = antenna.create_simulation(end_criteria=1e-4, nr_ts=max_timesteps, active_channels=channel)
+        fdtd, csx, ports, nf2ff = antenna.create_simulation(end_criteria=1e-6, nr_ts=max_timesteps, active_channels=channel)
         
         csx_xml_path = output_dir / "openEMS_model.xml"
-        fdtd.Write2XML(str(csx_xml_path))
+        write_solver_xml(fdtd, csx, csx_xml_path)
         print(f"Exported CSX/FDTD model XML: {csx_xml_path.name}")
         
         # 3. Run solver
@@ -605,7 +700,9 @@ def run_simulation(antenna_type: str = 'ti_77ghz_rx',
             vulkan_profile=vulkan_profile,
             vulkan_pml=vulkan_pml
         )
-        if solver_rc != 0:
+        if solver_rc not in (0, -1):
+            raise RuntimeError(f'openEMS failed with exit code {solver_rc}; see {openems_log_path}')
+        if solver_rc == -1:
             print(f"Subprocess returned {solver_rc}, executing fdtd.Run()...")
             run_kwargs = {'cleanup': True}
             if engine:

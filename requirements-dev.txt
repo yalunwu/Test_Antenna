@@ -1,0 +1,2 @@
+# Only needed to regenerate/reference-check the merged TI copper outlines.
+shapely==2.1.2

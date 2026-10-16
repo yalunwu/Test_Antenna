@@ -84,7 +84,7 @@ def main():
     parser.add_argument(
         '--max-timesteps',
         type=int,
-        default=40000,
+        default=500000,
         help="Maximum FDTD solver timesteps"
     )
     

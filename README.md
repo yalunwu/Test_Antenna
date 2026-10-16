@@ -4,6 +4,30 @@ A high-performance full-wave electromagnetic simulation suite for industry-prove
 
 Every simulation run records its configuration, solver logs, multi-port S-parameters, input impedance, far-field radiation patterns, interactive 3D WebGL models, and side-by-side benchmark comparison reports into a timestamped subfolder in `SimResult/` (e.g., `SimResult/YYYY-MM-DD_HH-MM-SS_<antenna_name>/`).
 
+To compare the latest saved runs against the original reference documents, run:
+
+```powershell
+.\.venv\Scripts\python.exe compare_results.py --source-farfields
+```
+
+This reconstructs wideband S11 from recorded port signals, calculates gain and realized gain from radiated/input power, and writes `source_comparison.md`, numerical metrics, CSVs, and a plot under `SimResult/source_comparison_<run-date>/`. The optional far-field step evaluates the TI RX at the source's 76 GHz and WB002 at 4 and 6.5 GHz using saved fields. Original run files are preserved.
+
+The static benchmark tables below contain values that disagree with the latest saved runs, and some compare directivity with published gain or truncate bandwidth to the operating-band sweep. Use the generated source comparison for current validation; the report identifies these discrepancies and documents the source figures and measurement conditions.
+
+The corrected geometry uses the original TI Gerber outlines for both 2.4 GHz antennas, their L2 RF ground depths, grounded coplanar transitions with vias for TI 77 GHz, and a circular matching pad plus thin sheet reflectors for MDPI. [CAD provenance and remaining board/fixture approximations](docs_reference/ti_geometry_sources.md) are documented separately. Copper remains PEC for this geometry baseline.
+
+All six models and the simulation pipeline default to **-60 dB energy decay** (`EndCriteria=1e-6`), with a **500,000-step cap**. The solver stops early when the decay criterion is reached; the cap can be raised with `--max-timesteps` if needed. New summaries record the actual energy-decay target, geometry revision and source hash. Post-processing reads the saved XML settings so older runs retain their original stopping target. An older run with a changed geometry revision is rejected to preserve its baseline.
+
+Solver XML exports preserve matching double precision for mesh lines and Box coordinates. This prevents point excitations and thin PEC sheets from disappearing during XML loading. The runtime rejects unused sources/metals, and post-processing rejects empty driven-port recordings. Native geometry validation reloads the exported XML before checking both metal and excitation primitives. See the [export precision correction](docs_reference/solver_grid_precision.md).
+
+To check source fidelity and export all corrected geometry previews without running an RF simulation:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe tools\validate_geometry.py --native
+```
+
 ---
 
 ## 1. Supported Proven Antenna Reference Designs
@@ -284,8 +308,8 @@ Test_Antenna/
 # Run with CPU multithreading instead of Vulkan GPU
 .\.venv\Scripts\python main.py --antenna ti_24ghz_an043 --engine multithreaded
 
-# Specify maximum timesteps (default: 50,000)
-.\.venv\Scripts\python main.py --antenna ti_77ghz_rx --max-timesteps 60000
+# Specify maximum timesteps (CLI default: 500,000)
+.\.venv\Scripts\python main.py --antenna ti_77ghz_rx --max-timesteps 500000
 
 # Inspect 3D CSXCAD geometry interactively in AppCSXCAD viewer before running FDTD
 .\.venv\Scripts\python main.py --antenna ti_24ghz_an043 --view
